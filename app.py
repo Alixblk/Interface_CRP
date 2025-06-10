@@ -1,98 +1,71 @@
 import streamlit as st
 import ezc3d
 import numpy as np
-import os
 import pandas as pd
-import matplotlib.pyplot as plt
-from io import BytesIO
+import tempfile
 
-st.set_page_config(page_title = "Analyse CRP", layout = "wide")
-st.title("🧼 Analyse du Continuous Relative Phase (CRP")
+st.title("Analyse CRP - Interface interactive")
 
-# Etape 1 : Importer un ou plusieurs fichiers .c3d
-uploaded_files = st.file_uploader(
-    "💾 Importer un ou plusieurs fichiers .c3d",
-    type = ["c3d"],
-    accept_multiple_files = True
-)
-st.title("Analyse du CRP à partir de fichiers .c3d")
-
-# Étape 1 : Import des fichiers
-uploaded_files = st.file_uploader("Importer un ou plusieurs fichiers .c3d", accept_multiple_files = True, type = "c3d")
+# Étape 1 : Import de fichiers C3D
+st.header("1. Importer un ou plusieurs fichiers .c3d")
+uploaded_files = st.file_uploader("Choisissez un ou plusieurs fichiers .c3d", type="c3d", accept_multiple_files=True)
 
 if uploaded_files:
-    st.success(f"{len(uploaded_files)} fichier(s) chargé(s) avec succès !")
+    selected_file = st.selectbox("Choisissez un fichier pour l'analyse", uploaded_files, format_func=lambda x: x.name)
 
-    for file in uploaded_files:
-        with open(os.path.join("temp_" + file.name), "wb") as f:
-            f.write(file.read())
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".c3d") as tmp:
+        tmp.write(selected_file.read())
+        tmp_path = tmp.name
 
-    selected_file = st.selectbox("📂 Choisir un fichier pour l'analyse", [f.name for f in uploaded_files])
-
-    if selected_file:
-        path = "temp_" + selected_file
-        c3d = ezc3d.c3d(path)
-
-# Étape 2 : sélection des marqueurs d'intérêt
-        st.subheader("✅ Prochaine étape : Sélectionner les marqueurs d'intérêt")
-        st.markdown("Sélectionnez deux marqueurs (ex: hanche droite, épaule gauche)")
-
-        marker_1 = st.selectbox("Marqueur 1", labels, key = "marker1")
-        marker_2 = st.selectbox("Marqueur 2", labels, key = "marker2")
-
-        if marker_1 != marker_2:
-            # Récupération des coordonnées
-            idx1 = labels.index(marker_1)
-            idx2 = labels.index(marker_2)
-            coords1 = c3d['data']['points'][:3, idx1, :].T  # (n_frames, 3)
-            coords2 = c3d['data']['points'][:3, idx2, :].T
-
-st.success(f"Coordonnées extraites pour {marker_1} et {marker_2} !")
-
-            # Pour afficher un extrait
-            st.write("### Extrait des coordonnées (premiers 5 frames) :")
-            st.write(f"**{marker_1}**", coords1[:5])
-            st.write(f"**{marker_2}**", coords2[:5])
-
-            st.subheader("🏋️ Prête pour l'étape suivante : calcul de la vitesse angulaire → plan de phase → CRP")
-        else:
-            st.warning("Merci de sélectionner deux marqueurs différents pour le calcul du CRP.")
-
-st.success("Fichier(s) importé(s) avec succès ✅")
-
-    # Chargement du premier fichier pour lecture des labels
-    file = uploaded_files[0]
-    c3d = ezc3d.c3d(BytesIO(file.read()))
+    c3d = ezc3d.c3d(tmp_path)
     labels = c3d['parameters']['POINT']['LABELS']['value']
+    st.success("Fichier chargé avec succès !")
+
+    # Étape 2 : Affichage des labels disponibles
+    st.header("2. Sélection des marqueurs")
     st.write("Labels disponibles :", labels)
 
-    # Étape 2 : Sélection des marqueurs pour le CRP
-    st.subheader("Sélection des marqueurs pour le calcul du CRP")
-    marker_1 = st.selectbox("Sélectionnez le premier marqueur (ex: hanche)", labels)
-    marker_2 = st.selectbox("Sélectionnez le second marqueur (ex: épaule)", labels)
-    heel_marker = st.selectbox("Sélectionnez le marqueur du talon (RHEE ou LHEE)", labels)
+    marker1 = st.selectbox("Marqueur 1 (par ex. hanche gauche)", labels)
+    marker2 = st.selectbox("Marqueur 2 (par ex. épaule droite)", labels)
+    heel_marker = st.selectbox("Marqueur du talon (pour segmentation du cycle de marche)", labels)
 
-    # Extraction des coordonnées des marqueurs
-    index_1 = labels.index(marker_1)
-    index_2 = labels.index(marker_2)
-    heel_index = labels.index(heel_marker)
+    if st.button("Extraire les coordonnées"):
+        points = c3d['data']['points']  # (4, N_markers, N_frames)
+        freq = c3d['header']['points']['frame_rate']
 
-    points = c3d['data']['points']
-    freq = c3d['header']['points']['frame_rate']
-    n_frames = points.shape[2]
-    time = np.linspace(0, n_frames / freq, n_frames)
+        def get_coords(label):
+            idx = labels.index(label)
+            return points[:3, idx, :].T  # shape (N_frames, 3)
 
-    coords_1 = points[:3, index_1, :].T  # shape (n_frames, 3)
-    coords_2 = points[:3, index_2, :].T
-    coords_heel = points[:3, heel_index, :].T
+        coords_1 = get_coords(marker1)
+        coords_2 = get_coords(marker2)
+        heel_coords = get_coords(heel_marker)
 
-    st.success("Coordonnées extraites. Prêtes pour la suite ✅")
+        df_coord = pd.DataFrame(coords_1, columns=['x1', 'y1', 'z1'])
+        df_coord[['x2', 'y2', 'z2']] = coords_2
 
-    st.write("Aperçu coordonnées marqueur 1:", pd.DataFrame(coords_1[:5], columns=["x", "y", "z"]))
-    st.write("Aperçu coordonnées marqueur 2:", pd.DataFrame(coords_2[:5], columns=["x", "y", "z"]))
-    st.write("Aperçu coordonnées talon:", pd.DataFrame(coords_heel[:5], columns=["x", "y", "z"]))
+        st.write("### Coordonnées extraites (premiers 5 frames) :")
+        st.write(df_coord.head())
 
-    # Message d'étape suivante
-    st.info("🔜 Prochaine étape : Calcul de la vitesse angulaire et plan de phase !")
-else:
-    st.warning("Veuillez importer au moins un fichier .c3d pour commencer.")
+        # Étape 3 : Calcul de la vitesse angulaire
+        st.header("3. Calcul de la vitesse angulaire")
+
+        # Vecteurs formés par les deux marqueurs (projection 2D dans le plan sagittal x-z)
+        vec = coords_2[:, [0, 2]] - coords_1[:, [0, 2]]  # shape (N_frames, 2)
+
+        # Angle θ = arctan2(z, x)
+        angles = np.arctan2(vec[:, 1], vec[:, 0])  # en radians
+
+        # Dérivation de l'angle (vitesse angulaire)
+        ang_vel = np.gradient(angles, 1/freq)  # rad/s
+
+        df_angles = pd.DataFrame({
+            "angle (rad)": angles,
+            "vitesse angulaire (rad/s)": ang_vel
+        })
+
+        st.line_chart(df_angles.head(200))
+        st.success("Angles et vitesses angulaires calculés !")
+
+        st.write("### Exemple de vitesses angulaires :")
+        st.write(df_angles.head())

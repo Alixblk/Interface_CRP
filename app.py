@@ -2,71 +2,97 @@ import streamlit as st
 import ezc3d
 import numpy as np
 import pandas as pd
+import tempfile
 import matplotlib.pyplot as plt
-from io import BytesIO
 
-st.set_page_config(page_title="CRP App", layout="wide")
-st.title("🦵 Analyse du CRP à partir de fichiers .c3d")
+st.set_page_config(layout="wide")
+st.title("Analyse CRP - Interface interactive")
 
-uploaded_files = st.file_uploader("Importe un ou plusieurs fichiers .c3d", type="c3d", accept_multiple_files=True)
+# Étape 1 : Import de fichiers C3D
+st.header("1. Importer un ou plusieurs fichiers .c3d")
+uploaded_files = st.file_uploader("Choisissez un ou plusieurs fichiers .c3d", type="c3d", accept_multiple_files=True)
 
 if uploaded_files:
-    for file in uploaded_files:
-        st.subheader(f"Fichier : {file.name}")
+    selected_file = st.selectbox("Choisissez un fichier pour l'analyse", uploaded_files, format_func=lambda x: x.name)
 
-        try:
-            c3d = ezc3d.c3d(BytesIO(file.read()))
-        except Exception as e:
-            st.error(f"Erreur de lecture du fichier : {e}")
-            continue
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".c3d") as tmp:
+        tmp.write(selected_file.read())
+        tmp_path = tmp.name
 
-        labels = c3d['parameters']['POINT']['LABELS']['value']
-        st.write(f"**Labels disponibles ({len(labels)}) :**")
-        st.write(labels)
+    c3d = ezc3d.c3d(tmp_path)
+    labels = c3d['parameters']['POINT']['LABELS']['value']
+    st.success("Fichier chargé avec succès !")
 
-        selected_label_1 = st.selectbox("Sélectionne le premier marqueur (ex: hanche gauche)", labels, key=f"label1_{file.name}")
-        selected_label_2 = st.selectbox("Sélectionne le second marqueur (ex: épaule droite)", labels, key=f"label2_{file.name}")
-        selected_heel_label = st.selectbox("Sélectionne le marqueur du talon (pour segmentation du cycle)", labels, key=f"heel_{file.name}")
+    # Étape 2 : Affichage des labels disponibles et sélection
+    st.header("2. Sélection des marqueurs")
+    st.write("Labels disponibles :", labels)
 
-        points = c3d['data']['points']  # shape: (4, N_markers, N_frames)
-        freq = c3d['header']['points']['frame_rate']
-        n_frames = points.shape[2]
+    marker1 = st.selectbox("Marqueur 1 (par ex. hanche gauche)", labels)
+    marker2 = st.selectbox("Marqueur 2 (par ex. épaule droite)", labels)
+    heel_marker = st.selectbox("Marqueur du talon (pour segmentation du cycle de marche)", labels)
 
-        def get_coords(label):
-            idx = labels.index(label)
-            return points[:3, idx, :].T  # shape: (n_frames, 3)
+    points = c3d['data']['points']  # (4, N_markers, N_frames)
+    freq = c3d['header']['points']['frame_rate']
+    time = np.arange(points.shape[2]) / freq
 
-        coords1 = get_coords(selected_label_1)
-        coords2 = get_coords(selected_label_2)
+    def get_coords(label):
+        idx = labels.index(label)
+        return points[:3, idx, :].T  # shape (N_frames, 3)
 
-        # Calcul de l'angle 2D entre les deux marqueurs (plan sagittal : x-z)
-        def compute_angle_2d(coord1, coord2):
-            dx = coord2[:, 0] - coord1[:, 0]
-            dz = coord2[:, 2] - coord1[:, 2]
-            return np.arctan2(dz, dx)  # radians
+    coords_1 = get_coords(marker1)
+    coords_2 = get_coords(marker2)
+    heel_coords = get_coords(heel_marker)
 
-        angle_rad = compute_angle_2d(coords1, coords2)
+    # Étape 3 : Segmentation du cycle de marche à partir du talon (sur l'axe z)
+    st.header("3. Segmentation du cycle de marche")
+    heel_z = heel_coords[:, 2]  # axe vertical
+    threshold = np.percentile(heel_z, 5)  # proche du sol
+    contact_frames = np.where(heel_z < threshold)[0]
 
-        # Calcul de la vitesse angulaire
-        dt = 1 / freq
-        angular_velocity = np.gradient(angle_rad, dt)
+    # On détecte les frames où le talon touche le sol
+    gait_events = []
+    for i in range(1, len(contact_frames)):
+        if contact_frames[i] - contact_frames[i - 1] > freq * 0.3:
+            gait_events.append(contact_frames[i])
 
-        st.write("### Exemple de valeurs (angles en radians)")
-        df = pd.DataFrame({
-            "Angle (rad)": angle_rad[:100],
-            "Vitesse angulaire (rad/s)": angular_velocity[:100]
+    st.write(f"{len(gait_events)} événements de contact détectés")
+
+    if len(gait_events) >= 2:
+        start, end = gait_events[0], gait_events[1]
+        st.write(f"Cycle choisi : frames {start} à {end} ({(end - start)/freq:.2f} sec)")
+
+        # On coupe les données au cycle choisi
+        coords_1 = coords_1[start:end]
+        coords_2 = coords_2[start:end]
+        time = time[start:end]
+
+        # Étape 4 : Calcul des angles et vitesses angulaires
+        st.header("4. Calcul des angles et vitesses angulaires")
+
+        vec = coords_2[:, [0, 2]] - coords_1[:, [0, 2]]
+        angles = np.arctan2(vec[:, 1], vec[:, 0])
+        ang_vel = np.gradient(angles, 1/freq)
+
+        df_angles = pd.DataFrame({
+            "temps (s)": time,
+            "angle (rad)": angles,
+            "vitesse angulaire (rad/s)": ang_vel
         })
-        st.dataframe(df)
 
-        # Tracer les courbes
+        st.write("### Tableau interactif")
+        st.dataframe(df_angles.round(3))
+
+        # Graphique
         fig, ax = plt.subplots(figsize=(10, 4))
-        ax.plot(angle_rad, label="Angle (rad)")
-        ax.plot(angular_velocity, label="Vitesse angulaire (rad/s)")
-        ax.set_title("Angle et vitesse angulaire entre les marqueurs sélectionnés")
-        ax.set_xlabel("Frames")
+        ax.plot(time, angles, label="Angle (rad)")
+        ax.plot(time, ang_vel, label="Vitesse angulaire (rad/s)", linestyle="--")
+        ax.set_xlabel("Temps (s)")
         ax.set_ylabel("Valeurs")
-        ax.grid(True)
         ax.legend()
+        ax.grid()
         st.pyplot(fig)
 
-        st.success("Angles et vitesses calculés avec succès ✅")
+        st.success("Calcul et affichage terminés !")
+
+    else:
+        st.warning("Pas assez de cycles de marche détectés pour l'analyse.")

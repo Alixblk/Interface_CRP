@@ -25,21 +25,21 @@ if uploaded_files:
     labels = c3d['parameters']['POINT']['LABELS']['value']
     st.success("Fichier .c3d chargé avec succès !")
 
-    # 2. Sélection des marqueurs
+# 2. Sélection des marqueurs
     st.header("2. Sélection des marqueurs")
     st.write("Labels disponibles :", labels)
 
     marker1 = st.selectbox("Marqueur 1 (ex. hanche)", labels)
     marker2 = st.selectbox("Marqueur 2 (ex. épaule)", labels)
 
-    # Filtrer uniquement les marqueurs de talon gauche ou droit
+# Filtrer uniquement les marqueurs de talon gauche ou droit
     heel_options = [label for label in labels if label in ["LHEE", "RHEE"]]
 if heel_options:
     heel_marker = st.selectbox("Marqueur du talon (pour détection du cycle)", heel_options)
 else:
         st.warning("Aucun marqueur 'LHEE' ou 'RHEE' trouvé dans ce fichier.")
 
-    if st.button("Extraire les coordonnées et détecter les contacts"):
+if st.button("Extraire les coordonnées et détecter les contacts"):
         points = c3d['data']['points']  # (4, N_markers, N_frames)
         freq = c3d['header']['points']['frame_rate']
         n_frames = points.shape[2]
@@ -52,7 +52,7 @@ else:
         coords_2 = get_coords(marker2)
         heel_coords = get_coords(heel_marker)
 
-     if st.button("Lancer l'analyse CRP complète (avec extraction de cycles normalisés)"):
+if st.button("Lancer l'analyse CRP complète (avec extraction de cycles normalisés)"):
     if heel_marker != "LHEE":
         st.warning("Cette étape est prévue uniquement avec le marqueur LHEE pour l'instant.")
     else:
@@ -73,7 +73,7 @@ else:
         ]
         lhee_n_cycles = len(lhee_valid_cycles)
 
-        # Affichage du signal + détection
+# Affichage du signal + détection
         fig1, ax1 = plt.subplots(figsize=(10, 4))
         time = np.arange(n_frames) / freq + first_frame / freq
         ax1.plot(time, z_lhee, label="Z (LHEE)")
@@ -87,7 +87,7 @@ else:
 
         st.success(f"{lhee_n_cycles} cycles valides détectés.")
 
-        # ➕ Extraction des angles LHipAngles pour chaque cycle
+# ➕ Extraction des angles LHipAngles pour chaque cycle
         if "LHipAngles" in labels:
             idx_lhip_angle = labels.index("LHipAngles")
             lhip_angle_data = points[:, idx_lhip_angle, :]
@@ -110,7 +110,7 @@ else:
 
             lhip_cycles = np.array(lhip_cycles)
 
-            # 🖼️ Visualisation
+# 🖼️ Visualisation
             if lhip_cycles.size > 0:
                 fig2, ax2 = plt.subplots(figsize=(10, 5))
                 for i, cycle in enumerate(lhip_cycles):

@@ -38,6 +38,29 @@ if uploaded_files:
     marker1 = st.selectbox("Marqueur d’intérêt 1 (ex. hanche)", labels)
     marker2 = st.selectbox("Marqueur d’intérêt 2 (ex. épaule)", labels)
 
+    # Fonction améliorée pour extraire et normaliser les cycles sans NaN
+    def extract_and_normalize_cycles(points, labels, marker_name, valid_cycles):
+        idx = labels.index(marker_name)
+        signal = points[0, idx, :]  # Plan sagittal
+        all_cycles = []
+
+        for i, (start, end) in enumerate(valid_cycles):
+            segment = signal[start:end]
+            x_original = np.linspace(0, 100, num=len(segment))
+            x_interp = np.linspace(0, 100, num=100)
+
+            try:
+                f = interp1d(x_original, segment, kind='cubic')
+                normalized = f(x_interp)
+                if not np.isnan(normalized).any():
+                    all_cycles.append(normalized)
+                else:
+                    st.warning(f"⚠️ Cycle {i+1} pour {marker_name} contient des NaN → exclu automatiquement.")
+            except Exception as e:
+                st.warning(f"⚠️ Erreur d'interpolation cycle {i+1} pour {marker_name} : {e}")
+
+        return np.array(all_cycles)
+
     if st.button("Lancer la détection + extraction pour les 2 marqueurs"):
         try:
             # --- Détection des cycles ---
@@ -64,55 +87,43 @@ if uploaded_files:
             st.pyplot(fig1)
             st.success(f"{n_cycles} cycles valides détectés.")
 
-            def extract_cycles(label):
-                idx = labels.index(label)
-                signal = points[0, idx, :]  # plan sagittal
-                cycles = []
-                for start, end in valid_cycles:
-                    segment = signal[start:end]
-                    x_original = np.linspace(0, 100, num=len(segment))
-                    x_interp = np.linspace(0, 100, num=100)
-                    try:
-                        f = interp1d(x_original, segment, kind='cubic')
-                        normalized = f(x_interp)
-                        cycles.append(normalized)
-                    except ValueError:
-                        st.warning(f"Interpolation échouée pour {label} cycle {start}-{end}")
-                return np.array(cycles)
+            # Extraction + nettoyage des cycles pour les 2 marqueurs
+            marker1_cycles = extract_and_normalize_cycles(points, labels, marker1, valid_cycles)
+            marker2_cycles = extract_and_normalize_cycles(points, labels, marker2, valid_cycles)
 
-            # Extraction des cycles pour les 2 marqueurs
-            marker1_cycles = extract_cycles(marker1)
-            marker2_cycles = extract_cycles(marker2)
-
-            # --- Visualisation des cycles normalisés + moyenne pour marker 1 ---
+            # --- Visualisation pour marker 1 ---
             if marker1_cycles.size > 0:
                 fig2, ax2 = plt.subplots(figsize=(10, 5))
                 x = np.linspace(0, 100, 100)
-                for i, cycle in enumerate(marker1_cycles):
+                for cycle in marker1_cycles:
                     ax2.plot(x, cycle, alpha=0.5)
                 mean1 = np.mean(marker1_cycles, axis=0)
                 ax2.plot(x, mean1, color="black", linewidth=2.5, label="Moyenne")
                 ax2.set_title(f"{marker1} - Cycles normalisés (plan sagittal)")
                 ax2.set_xlabel("Cycle (%)")
-                ax2.set_ylabel("Signal (°)")
+                ax2.set_ylabel("Angle (°)")
                 ax2.grid(alpha=0.3)
                 ax2.legend()
                 st.pyplot(fig2)
+            else:
+                st.warning(f"Aucun cycle valide pour {marker1} après nettoyage.")
 
-            # --- Visualisation des cycles normalisés + moyenne pour marker 2 ---
+            # --- Visualisation pour marker 2 ---
             if marker2_cycles.size > 0:
                 fig3, ax3 = plt.subplots(figsize=(10, 5))
                 x = np.linspace(0, 100, 100)
-                for i, cycle in enumerate(marker2_cycles):
+                for cycle in marker2_cycles:
                     ax3.plot(x, cycle, alpha=0.5)
                 mean2 = np.mean(marker2_cycles, axis=0)
                 ax3.plot(x, mean2, color="black", linewidth=2.5, label="Moyenne")
                 ax3.set_title(f"{marker2} - Cycles normalisés (plan sagittal)")
                 ax3.set_xlabel("Cycle (%)")
-                ax3.set_ylabel("Signal (°)")
+                ax3.set_ylabel("Angle (°)")
                 ax3.grid(alpha=0.3)
                 ax3.legend()
                 st.pyplot(fig3)
+            else:
+                st.warning(f"Aucun cycle valide pour {marker2} après nettoyage.")
 
         except Exception as e:
             st.error(f"Erreur pendant l'analyse : {e}")

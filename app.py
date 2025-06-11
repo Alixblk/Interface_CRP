@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
+from scipy.interpolate import interp1d
 import tempfile
 
 st.set_page_config(page_title="Analyse CRP", layout="centered")
@@ -51,41 +52,75 @@ if uploaded_files:
         coords_2 = get_coords(marker2)
         heel_coords = get_coords(heel_marker)
 
-        # Test pour identifier l'axe vertical (Y ou Z)
-        st.subheader("Hauteur du talon - vérification")
-        avg_range = [np.ptp(heel_coords[:, axis]) for axis in range(3)]
-        vertical_axis = np.argmax(avg_range)
-        st.write(f"Axe vertical détecté : {'X' if vertical_axis==0 else 'Y' if vertical_axis==1 else 'Z'}")
+     if st.button("Lancer l'analyse CRP complète (avec extraction de cycles normalisés)"):
+    if heel_marker != "LHEE":
+        st.warning("Cette étape est prévue uniquement avec le marqueur LHEE pour l'instant.")
+    else:
+        # Recalcul utile dans le contexte Streamlit
+        idx_lhee = labels.index("LHEE")
+        z_lhee = points[2, idx_lhee, :]
+        inverted_z = -z_lhee
+        min_distance = int(freq * 0.8)
 
-        heel_height = heel_coords[:, vertical_axis]
+        peaks, _ = find_peaks(inverted_z, distance=min_distance, prominence=1)
+        lhee_cycle_start_indices = peaks[:-1]
+        lhee_cycle_end_indices = peaks[1:]
+        min_lhee_cycle_duration = int(0.5 * freq)
 
-        # Détection des minima locaux (contacts talon)
-        inverted = -heel_height
-        peaks, _ = find_peaks(inverted, distance=int(freq*0.5))
-        st.success(f"{len(peaks)} contacts du talon détectés")
+        lhee_valid_cycles = [
+            (start, end) for start, end in zip(lhee_cycle_start_indices, lhee_cycle_end_indices)
+            if (end - start) >= min_lhee_cycle_duration
+        ]
+        lhee_n_cycles = len(lhee_valid_cycles)
 
-        # Affichage de la trajectoire verticale avec contacts
-        fig, ax = plt.subplots()
-        ax.plot(heel_height, label="Hauteur du talon")
-        ax.plot(peaks, heel_height[peaks], "rx", label="Contacts")
-        ax.set_title("Trajectoire verticale du talon")
-        ax.legend()
-        st.pyplot(fig)
+        # Affichage du signal + détection
+        fig1, ax1 = plt.subplots(figsize=(10, 4))
+        time = np.arange(n_frames) / freq + first_frame / freq
+        ax1.plot(time, z_lhee, label="Z (LHEE)")
+        ax1.plot(time[peaks], z_lhee[peaks], "ro", label="Début de cycle")
+        ax1.set_title("Détection des cycles via LHEE")
+        ax1.set_xlabel("Temps (s)")
+        ax1.set_ylabel("Hauteur (axe Z)")
+        ax1.grid(alpha=0.3)
+        ax1.legend()
+        st.pyplot(fig1)
 
-        # Extraction d'un cycle complet (entre 2 pics)
-        if len(peaks) >= 2:
-            start, end = peaks[0], peaks[1]
-            vec = coords_2[start:end, [0, 2]] - coords_1[start:end, [0, 2]]  # plan sagittal x-z
-            angles = np.arctan2(vec[:, 1], vec[:, 0])
-            ang_vel = np.gradient(angles, 1/freq)
+        st.success(f"{lhee_n_cycles} cycles valides détectés.")
 
-            df = pd.DataFrame({
-                "Angle (rad)": angles,
-                "Vitesse angulaire (rad/s)": ang_vel
-            })
+        # ➕ Extraction des angles LHipAngles pour chaque cycle
+        if "LHipAngles" in labels:
+            idx_lhip_angle = labels.index("LHipAngles")
+            lhip_angle_data = points[:, idx_lhip_angle, :]
+            angle_lhip_sagittal = lhip_angle_data[0, :]  # plan sagittal (X)
 
-            st.header("3. Calcul des angles et vitesses")
-            st.line_chart(df)
-            st.write(df.head())
+            lhip_cycles = []
+
+            for start, end in lhee_valid_cycles:
+                lhip_angle_cycle = angle_lhip_sagittal[start:end]
+
+                x_original = np.linspace(0, 100, num=len(lhip_angle_cycle))
+                x_interp = np.linspace(0, 100, num=100)
+
+                try:
+                    f = interp1d(x_original, lhip_angle_cycle, kind='cubic')
+                    normalized_lhip_cycle = f(x_interp)
+                    lhip_cycles.append(normalized_lhip_cycle)
+                except ValueError:
+                    st.warning(f"Erreur d'interpolation sur le cycle {start}-{end}. Cycle ignoré.")
+
+            lhip_cycles = np.array(lhip_cycles)
+
+            # 🖼️ Visualisation
+            if lhip_cycles.size > 0:
+                fig2, ax2 = plt.subplots(figsize=(10, 5))
+                for i, cycle in enumerate(lhip_cycles):
+                    ax2.plot(np.linspace(0, 100, 100), cycle, label=f"Cycle {i+1}")
+                ax2.set_title("Angles hanche gauche (LHipAngles) - plan sagittal")
+                ax2.set_xlabel("Cycle (%)")
+                ax2.set_ylabel("Angle (°)")
+                ax2.grid(alpha=0.3)
+                st.pyplot(fig2)
+            else:
+                st.warning("Aucun cycle utilisable n'a pu être normalisé correctement.")
         else:
-            st.warning("Pas assez de cycles de marche détectés pour extraire un segment.")
+            st.warning("Le marqueur 'LHipAngles' n'est pas disponible dans ce fichier.")

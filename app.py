@@ -35,11 +35,12 @@ if uploaded_files:
     st.write("Labels disponibles :", labels)
 
     heel_marker = st.selectbox("Marqueur du talon (pour détection des cycles)", labels)
-    interest_marker = st.selectbox("Marqueur d’intérêt (ex. hanche, épaule...)", labels)
+    marker1 = st.selectbox("Marqueur d’intérêt 1 (ex. hanche)", labels)
+    marker2 = st.selectbox("Marqueur d’intérêt 2 (ex. épaule)", labels)
 
-    if st.button("Lancer la détection + extraction normalisée"):
-        # --- Détection des cycles à partir du marqueur talon choisi ---
+    if st.button("Lancer la détection + extraction pour les 2 marqueurs"):
         try:
+            # --- Détection des cycles ---
             idx_heel = labels.index(heel_marker)
             z_heel = points[2, idx_heel, :]
             inverted_z = -z_heel
@@ -52,7 +53,6 @@ if uploaded_files:
             valid_cycles = [(start, end) for start, end in zip(cycle_starts, cycle_ends) if (end - start) >= min_duration]
             n_cycles = len(valid_cycles)
 
-            # Visualisation du signal Z + détection
             fig1, ax1 = plt.subplots(figsize=(10, 4))
             ax1.plot(time, z_heel, label=f"Z ({heel_marker})")
             ax1.plot(time[peaks], z_heel[peaks], "ro", label="Début de cycle")
@@ -64,37 +64,55 @@ if uploaded_files:
             st.pyplot(fig1)
             st.success(f"{n_cycles} cycles valides détectés.")
 
-            # --- Extraction et normalisation des cycles pour le marqueur choisi ---
-            idx_interest = labels.index(interest_marker)
-            interest_data = points[:, idx_interest, :]  # (4, n_frames)
-            interest_sagittal = interest_data[0, :]  # plan sagittal (X)
+            def extract_cycles(label):
+                idx = labels.index(label)
+                signal = points[0, idx, :]  # plan sagittal
+                cycles = []
+                for start, end in valid_cycles:
+                    segment = signal[start:end]
+                    x_original = np.linspace(0, 100, num=len(segment))
+                    x_interp = np.linspace(0, 100, num=100)
+                    try:
+                        f = interp1d(x_original, segment, kind='cubic')
+                        normalized = f(x_interp)
+                        cycles.append(normalized)
+                    except ValueError:
+                        st.warning(f"Interpolation échouée pour {label} cycle {start}-{end}")
+                return np.array(cycles)
 
-            normalized_cycles = []
-            for start, end in valid_cycles:
-                segment = interest_sagittal[start:end]
-                x_original = np.linspace(0, 100, num=len(segment))
-                x_interp = np.linspace(0, 100, num=100)
+            # Extraction des cycles pour les 2 marqueurs
+            marker1_cycles = extract_cycles(marker1)
+            marker2_cycles = extract_cycles(marker2)
 
-                try:
-                    f = interp1d(x_original, segment, kind='cubic')
-                    norm = f(x_interp)
-                    normalized_cycles.append(norm)
-                except ValueError:
-                    st.warning(f"Erreur d'interpolation : cycle {start}-{end} ignoré.")
-
-            normalized_cycles = np.array(normalized_cycles)
-
-            # --- Visualisation des cycles ---
-            if normalized_cycles.size > 0:
+            # --- Visualisation des cycles normalisés + moyenne pour marker 1 ---
+            if marker1_cycles.size > 0:
                 fig2, ax2 = plt.subplots(figsize=(10, 5))
-                for i, cycle in enumerate(normalized_cycles):
-                    ax2.plot(np.linspace(0, 100, 100), cycle, label=f"Cycle {i+1}")
-                ax2.set_title(f"Signal du marqueur {interest_marker} - Normalisé sur 100% du cycle")
+                x = np.linspace(0, 100, 100)
+                for i, cycle in enumerate(marker1_cycles):
+                    ax2.plot(x, cycle, alpha=0.5)
+                mean1 = np.mean(marker1_cycles, axis=0)
+                ax2.plot(x, mean1, color="black", linewidth=2.5, label="Moyenne")
+                ax2.set_title(f"{marker1} - Cycles normalisés (plan sagittal)")
                 ax2.set_xlabel("Cycle (%)")
-                ax2.set_ylabel("Signal (plan sagittal)")
+                ax2.set_ylabel("Signal (°)")
                 ax2.grid(alpha=0.3)
+                ax2.legend()
                 st.pyplot(fig2)
-            else:
-                st.warning("Aucun cycle utilisable n'a pu être normalisé.")
+
+            # --- Visualisation des cycles normalisés + moyenne pour marker 2 ---
+            if marker2_cycles.size > 0:
+                fig3, ax3 = plt.subplots(figsize=(10, 5))
+                x = np.linspace(0, 100, 100)
+                for i, cycle in enumerate(marker2_cycles):
+                    ax3.plot(x, cycle, alpha=0.5)
+                mean2 = np.mean(marker2_cycles, axis=0)
+                ax3.plot(x, mean2, color="black", linewidth=2.5, label="Moyenne")
+                ax3.set_title(f"{marker2} - Cycles normalisés (plan sagittal)")
+                ax3.set_xlabel("Cycle (%)")
+                ax3.set_ylabel("Signal (°)")
+                ax3.grid(alpha=0.3)
+                ax3.legend()
+                st.pyplot(fig3)
+
         except Exception as e:
             st.error(f"Erreur pendant l'analyse : {e}")

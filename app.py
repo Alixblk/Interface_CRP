@@ -32,11 +32,11 @@ if uploaded_files:
     marker2 = st.selectbox("Marqueur 2 (ex. épaule)", labels)
 
     # Filtrer uniquement les marqueurs de talon gauche ou droit
-    heel_options = [label for label in labels if label in ["LHEE", "RHEE"]]
-if heel_options:
-    heel_marker = st.selectbox("Marqueur du talon (pour détection du cycle)", heel_options)
-else:
-    st.warning("Aucun marqueur 'LHEE' ou 'RHEE' trouvé dans ce fichier.")
+        heel_options = [label for label in labels if label in ["LHEE", "RHEE"]]
+    if heel_options:
+        heel_marker = st.selectbox("Marqueur du talon (pour détection du cycle)", heel_options)
+    else:
+        st.warning("Aucun marqueur 'LHEE' ou 'RHEE' trouvé dans ce fichier.")
 
     if st.button("Extraire les coordonnées et détecter les contacts"):
         points = c3d['data']['points']  # (4, N_markers, N_frames)

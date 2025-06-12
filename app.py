@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 from scipy.interpolate import interp1d
+from sklearn.preprocessing import MinMaxScaler
 import tempfile
 
 st.set_page_config(page_title="Analyse CRP", layout="centered")
@@ -38,7 +39,6 @@ if uploaded_files:
     marker1 = st.selectbox("Marqueur d’intérêt 1 (ex. hanche)", labels)
     marker2 = st.selectbox("Marqueur d’intérêt 2 (ex. épaule)", labels)
 
-    # Fonction améliorée pour extraire et normaliser les cycles sans NaN
     def extract_and_normalize_cycles(points, labels, marker_name, valid_cycles):
         idx = labels.index(marker_name)
         signal = points[0, idx, :]  # Plan sagittal
@@ -87,11 +87,11 @@ if uploaded_files:
             st.pyplot(fig1)
             st.success(f"{n_cycles} cycles valides détectés.")
 
-            # Extraction + nettoyage des cycles pour les 2 marqueurs
+            st.header("3. Analyses")
+
             marker1_cycles = extract_and_normalize_cycles(points, labels, marker1, valid_cycles)
             marker2_cycles = extract_and_normalize_cycles(points, labels, marker2, valid_cycles)
 
-            # --- Visualisation pour marker 1 ---
             if marker1_cycles.size > 0:
                 fig2, ax2 = plt.subplots(figsize=(10, 5))
                 x = np.linspace(0, 100, 100)
@@ -108,7 +108,6 @@ if uploaded_files:
             else:
                 st.warning(f"Aucun cycle valide pour {marker1} après nettoyage.")
 
-            # --- Visualisation pour marker 2 ---
             if marker2_cycles.size > 0:
                 fig3, ax3 = plt.subplots(figsize=(10, 5))
                 x = np.linspace(0, 100, 100)
@@ -125,5 +124,119 @@ if uploaded_files:
             else:
                 st.warning(f"Aucun cycle valide pour {marker2} après nettoyage.")
 
+            # --- VITESSE ANGULAIRE ---
+            if marker1_cycles.size > 0:
+                marker1_velocity = np.gradient(marker1_cycles, axis=1)
+                mean_marker1_velocity = np.mean(marker1_velocity, axis=0)
+
+                fig4, ax4 = plt.subplots(figsize=(10, 5))
+                x = np.linspace(0, 100, 100)
+                ax4.plot(x, mean_marker1_velocity, color="purple", linewidth=2.5, label=f"Vitesse angulaire moyenne ({marker1})")
+                ax4.set_title(f"Vitesse angulaire - {marker1} (plan sagittal)")
+                ax4.set_xlabel("Cycle de marche (%)")
+                ax4.set_ylabel("Vitesse angulaire (°/s)")
+                ax4.grid(alpha=0.3)
+                ax4.legend()
+                st.pyplot(fig4)
+
+                # Plan de phase
+                scaler = MinMaxScaler(feature_range=(-1, 1))
+                marker1_angle_norm = scaler.fit_transform(mean1.reshape(-1, 1)).flatten()
+                marker1_velocity_norm = scaler.fit_transform(mean_marker1_velocity.reshape(-1, 1)).flatten()
+
+                fig_phase1, ax_phase1 = plt.subplots(figsize=(6, 6))
+                ax_phase1.plot(marker1_angle_norm, marker1_velocity_norm, color="blue")
+                ax_phase1.axhline(0, color="black", linewidth=0.8)
+                ax_phase1.axvline(0, color="black", linewidth=0.8)
+                ax_phase1.set_title(f"Angle polaire de {marker1}")
+                ax_phase1.set_xlabel(f"Angle normalisé de {marker1}")
+                ax_phase1.set_ylabel(f"Vitesse angulaire normalisée de {marker1}")
+                ax_phase1.grid(True)
+                ax_phase1.axis("equal")
+                st.pyplot(fig_phase1)
+
+                # Angle de phase
+                marker1_phase_rad = np.arctan2(marker1_velocity_norm, marker1_angle_norm)
+                marker1_phase_unwrapped = np.unwrap(marker1_phase_rad)
+                marker1_phase_deg = np.degrees(marker1_phase_unwrapped)
+
+                fig_angle1, ax_angle1 = plt.subplots(figsize=(10, 4))
+                ax_angle1.plot(np.linspace(0, 100, 100), marker1_phase_deg, color="green")
+                ax_angle1.set_title(f"Angle de phase (déplié) - {marker1}")
+                ax_angle1.set_xlabel("Cycle de marche (%)")
+                ax_angle1.set_ylabel("Angle de phase (°)")
+                ax_angle1.grid(True)
+                st.pyplot(fig_angle1)
+
+            if marker2_cycles.size > 0:
+                marker2_velocity = np.gradient(marker2_cycles, axis=1)
+                mean_marker2_velocity = np.mean(marker2_velocity, axis=0)
+
+                fig5, ax5 = plt.subplots(figsize=(10, 5))
+                x = np.linspace(0, 100, 100)
+                ax5.plot(x, mean_marker2_velocity, color="orange", linewidth=2.5, label=f"Vitesse angulaire moyenne ({marker2})")
+                ax5.set_title(f"Vitesse angulaire - {marker2} (plan sagittal)")
+                ax5.set_xlabel("Cycle de marche (%)")
+                ax5.set_ylabel("Vitesse angulaire (°/s)")
+                ax5.grid(alpha=0.3)
+                ax5.legend()
+                st.pyplot(fig5)
+
+                scaler = MinMaxScaler(feature_range=(-1, 1))
+                marker2_angle_norm = scaler.fit_transform(mean2.reshape(-1, 1)).flatten()
+                marker2_velocity_norm = scaler.fit_transform(mean_marker2_velocity.reshape(-1, 1)).flatten()
+
+                fig_phase2, ax_phase2 = plt.subplots(figsize=(6, 6))
+                ax_phase2.plot(marker2_angle_norm, marker2_velocity_norm, color="blue")
+                ax_phase2.axhline(0, color="black", linewidth=0.8)
+                ax_phase2.axvline(0, color="black", linewidth=0.8)
+                ax_phase2.set_title(f"Angle polaire de {marker2}")
+                ax_phase2.set_xlabel(f"Angle normalisé de {marker2}")
+                ax_phase2.set_ylabel(f"Vitesse angulaire normalisée de {marker2}")
+                ax_phase2.grid(True)
+                ax_phase2.axis("equal")
+                st.pyplot(fig_phase2)
+
+                marker2_phase_rad = np.arctan2(marker2_velocity_norm, marker2_angle_norm)
+                marker2_phase_unwrapped = np.unwrap(marker2_phase_rad)
+                marker2_phase_deg = np.degrees(marker2_phase_unwrapped)
+
+                fig_angle2, ax_angle2 = plt.subplots(figsize=(10, 4))
+                ax_angle2.plot(np.linspace(0, 100, 100), marker2_phase_deg, color="green")
+                ax_angle2.set_title(f"Angle de phase (déplié) - {marker2}")
+                ax_angle2.set_xlabel("Cycle de marche (%)")
+                ax_angle2.set_ylabel("Angle de phase (°)")
+                ax_angle2.grid(True)
+                st.pyplot(fig_angle2)
+
+            # --- CALCUL DU CRP ---
+            if marker1_cycles.size > 0 and marker2_cycles.size > 0:
+                crp_rad = marker1_phase_unwrapped - marker2_phase_unwrapped
+                crp_norm = crp_rad / np.pi
+
+                fig_crp, ax_crp = plt.subplots(figsize=(10, 5))
+                ax_crp.plot(np.linspace(0, 100, 100), crp_norm, color='brown', label='CRP normalisé [-1,1]')
+                ax_crp.axhline(0, color='black', linestyle='--', linewidth=0.8)
+                ax_crp.set_title(f"Continuous Relative Phase (CRP) normalisé entre {marker1} et {marker2}")
+                ax_crp.set_xlabel("Cycle de marche (%)")
+                ax_crp.set_ylabel("CRP (normalisé)")
+                ax_crp.set_ylim(-3, 3)
+                ax_crp.grid(True)
+                ax_crp.legend()
+                st.pyplot(fig_crp)
+
+                # Statistiques CRP
+                crp_mean_val = np.mean(crp_norm)
+                crp_std = np.std(crp_norm)
+                crp_min = np.min(crp_norm)
+                crp_max = np.max(crp_norm)
+                crp_min_pos = np.argmin(crp_norm)
+                crp_max_pos = np.argmax(crp_norm)
+
+                st.markdown("### 📊 Statistiques du CRP")
+                st.write(f"**CRP moyen** : {crp_mean_val:.3f}")
+                st.write(f"**Écart-type** : {crp_std:.3f}")
+                st.write(f"**CRP minimum** : {crp_min:.3f} à {crp_min_pos} % du cycle")
+                st.write(f"**CRP maximum** : {crp_max:.3f} à {crp_max_pos} % du cycle")
         except Exception as e:
             st.error(f"Erreur pendant l'analyse : {e}")

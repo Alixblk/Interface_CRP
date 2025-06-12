@@ -3,3 +3,4 @@ ezc3d
 numpy
 matplotlib
 scipy
+scikit-learn
